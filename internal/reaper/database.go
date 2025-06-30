@@ -556,18 +556,11 @@ func TryCreateMetricsFetchingHelpers(ctx context.Context, md *sources.SourceConn
 	return
 }
 
-func (r *Reaper) CloseResourcesForRemovedMonitoredDBs(shutDownDueToRoleChange map[string]bool) {
-	for _, prevDB := range r.prevLoopMonitoredDBs {
-		if r.monitoredSources.GetMonitoredDatabase(prevDB.Name) == nil { // removed from config
-			prevDB.Conn.Close()
-			_ = r.SinksWriter.SyncMetric(prevDB.Name, "", sinks.DeleteOp)
-		}
-	}
-
-	for roleChangedDB := range shutDownDueToRoleChange {
-		if db := r.monitoredSources.GetMonitoredDatabase(roleChangedDB); db != nil {
+func (r *Reaper) CloseResourcesForRemovedMonitoredDBs(toShutDown map[string]bool) {
+	for dbName := range toShutDown {
+		if db := r.monitoredSources.GetMonitoredDatabase(dbName); db != nil {
 			db.Conn.Close()
 		}
-		_ = r.SinksWriter.SyncMetric(roleChangedDB, "", sinks.DeleteOp)
+		_ = r.SinksWriter.SyncMetric(dbName, "", sinks.DeleteOp)
 	}
 }

@@ -218,40 +218,38 @@ func (r *Reaper) CreateSourceHelpers(ctx context.Context, srcL log.Logger, monit
 
 }
 
-func (r *Reaper) ShutdownOldWorkers(ctx context.Context, hostsToShutDownDueToRoleChange map[string]bool) {
+func (r *Reaper) ShutdownOldWorkers(ctx context.Context, hostsToShutDown map[string]bool) {
 	logger := r.logger
 	// loop over existing channels and stop workers if DB or metric removed from config
 	// or state change makes it uninteresting
 	logger.Debug("checking if any workers need to be shut down...")
 	for dbMetric, cancelFunc := range r.cancelFuncs {
-		var currentMetricConfig map[string]float64
 		var md *sources.SourceConn
-		var dbRemovedFromConfig bool
+		var interval float64
+		var isMetricActive bool
 		singleMetricDisabled := false
 		splits := strings.Split(dbMetric, dbMetricJoinStr)
 		db := splits[0]
 		metric := splits[1]
 
-		_, wholeDbShutDownDueToRoleChange := hostsToShutDownDueToRoleChange[db]
-		if !wholeDbShutDownDueToRoleChange {
+		_, toShutDown := hostsToShutDown[db]
+		if !toShutDown {
 			md = r.monitoredSources.GetMonitoredDatabase(db)
 			if md == nil { // normal removing of DB from config
-				dbRemovedFromConfig = true
+				hostsToShutDown[db] = true
+				toShutDown = true
 				logger.Debugf("DB %s removed from config, shutting down all metric worker processes...", db)
+			} else { // maybe some single metric was disabled
+				if md.IsInRecovery && len(md.MetricsStandby) > 0 {
+					interval, isMetricActive = md.MetricsStandby[metric]
+				} else {
+					interval, isMetricActive = md.Metrics[metric]
+				}
+				singleMetricDisabled = !isMetricActive || interval <= 0
 			}
 		}
 
-		if !(wholeDbShutDownDueToRoleChange || dbRemovedFromConfig) { // maybe some single metric was disabled
-			if md.IsInRecovery && len(md.MetricsStandby) > 0 {
-				currentMetricConfig = md.MetricsStandby
-			} else {
-				currentMetricConfig = md.Metrics
-			}
-			interval, isMetricActive := currentMetricConfig[metric]
-			singleMetricDisabled = !isMetricActive || interval <= 0
-		}
-
-		if ctx.Err() != nil || wholeDbShutDownDueToRoleChange || dbRemovedFromConfig || singleMetricDisabled {
+		if ctx.Err() != nil || toShutDown || singleMetricDisabled {
 			logger.WithField("source", db).WithField("metric", metric).Info("stopping gatherer...")
 			cancelFunc()
 			delete(r.cancelFuncs, dbMetric)
@@ -261,8 +259,8 @@ func (r *Reaper) ShutdownOldWorkers(ctx context.Context, hostsToShutDownDueToRol
 		}
 	}
 
-	// Destroy conn pools and metric writers
-	r.CloseResourcesForRemovedMonitoredDBs(hostsToShutDownDueToRoleChange)
+	// Destroy conn pools 
+	r.CloseResourcesForRemovedMonitoredDBs(hostsToShutDown)
 }
 
 func (r *Reaper) reapMetricMeasurements(ctx context.Context, md *sources.SourceConn, metricName string) {
