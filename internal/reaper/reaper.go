@@ -30,7 +30,7 @@ type Reaper struct {
 	measurementCache     *InstanceMetricCache
 	logger               log.Logger
 	monitoredSources     sources.SourceConns
-	prevLoopMonitoredDBs sources.SourceConns
+	srcsWithHelpers      map[string]bool
 	cancelFuncs          map[string]context.CancelFunc
 }
 
@@ -42,7 +42,7 @@ func NewReaper(ctx context.Context, opts *cmdopts.Options) (r *Reaper) {
 		measurementCache:     NewInstanceMetricCache(),
 		logger:               log.GetLogger(ctx),
 		monitoredSources:     make(sources.SourceConns, 0),
-		prevLoopMonitoredDBs: make(sources.SourceConns, 0),
+		srcsWithHelpers:          make(map[string]bool),
 		cancelFuncs:          make(map[string]context.CancelFunc), // [db1+metric1]cancel()
 	}
 }
@@ -182,8 +182,6 @@ func (r *Reaper) Reap(ctx context.Context) {
 		}
 
 		r.ShutdownOldWorkers(ctx, hostsToShutDownDueToRoleChange)
-
-		r.prevLoopMonitoredDBs = slices.Clone(r.monitoredSources)
 		select {
 		case <-time.After(time.Second * time.Duration(r.Sources.Refresh)):
 			logger.Debugf("wake up after %d seconds", r.Sources.Refresh)
@@ -195,11 +193,12 @@ func (r *Reaper) Reap(ctx context.Context) {
 
 // CreateSourceHelpers creates the extensions and metric helpers for the monitored source
 func (r *Reaper) CreateSourceHelpers(ctx context.Context, srcL log.Logger, monitoredSource *sources.SourceConn) {
-	if r.prevLoopMonitoredDBs.GetMonitoredDatabase(monitoredSource.Name) != nil {
-		return // already created
-	}
 	if !monitoredSource.IsPostgresSource() || monitoredSource.IsInRecovery {
 		return // no need to create anything for non-postgres sources
+	}
+	dbUnique := monitoredSource.Name
+	if created := r.srcsWithHelpers[dbUnique]; created {
+		return // already created
 	}
 
 	if r.Sources.TryCreateListedExtsIfMissing > "" {
@@ -207,6 +206,7 @@ func (r *Reaper) CreateSourceHelpers(ctx context.Context, srcL log.Logger, monit
 		extsToCreate := strings.Split(r.Sources.TryCreateListedExtsIfMissing, ",")
 		extsCreated := TryCreateMissingExtensions(ctx, monitoredSource, extsToCreate, monitoredSource.Extensions)
 		srcL.Infof("%d/%d extensions created based on --try-create-listed-exts-if-missing input %v", len(extsCreated), len(extsToCreate), extsCreated)
+		r.srcsWithHelpers[dbUnique] = true 
 	}
 
 	if r.Sources.CreateHelpers {
@@ -214,6 +214,7 @@ func (r *Reaper) CreateSourceHelpers(ctx context.Context, srcL log.Logger, monit
 		if err := TryCreateMetricsFetchingHelpers(ctx, monitoredSource); err != nil {
 			srcL.WithError(err).Warning("failed to create helper functions")
 		}
+		r.srcsWithHelpers[dbUnique] = true 
 	}
 
 }
