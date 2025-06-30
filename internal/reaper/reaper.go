@@ -156,31 +156,22 @@ func (r *Reaper) Reap(ctx context.Context) {
 				dbMetric := monitoredSource.Name + dbMetricJoinStr + metric
 				_, cancelFuncExists := r.cancelFuncs[dbMetric]
 
-				if metricDefExists && !cancelFuncExists { // initialize a new per db/per metric control channel
-					if interval > 0 {
-						srcL.WithField("metric", metric).WithField("interval", interval).Info("starting gatherer")
-						metricCtx, cancelFunc := context.WithCancel(ctx)
-						r.cancelFuncs[dbMetric] = cancelFunc
+				if metricDefExists && !cancelFuncExists && interval > 0 { // initialize a new per db/per metric control channel
+					srcL.WithField("metric", metric).WithField("interval", interval).Info("starting gatherer")
+					metricCtx, cancelFunc := context.WithCancel(ctx)
+					r.cancelFuncs[dbMetric] = cancelFunc
 
-						metricNameForStorage := metricName
-						if _, isSpecialMetric := specialMetrics[metricName]; !isSpecialMetric && mvp.StorageName > "" {
-							metricNameForStorage = mvp.StorageName
-						}
-
-						if err := r.SinksWriter.SyncMetric(monitoredSource.Name, metricNameForStorage, sinks.AddOp); err != nil {
-							srcL.Error(err)
-						}
-
-						go r.reapMetricMeasurements(metricCtx, monitoredSource, metric)
+					metricNameForStorage := metricName
+					if _, isSpecialMetric := specialMetrics[metricName]; !isSpecialMetric && mvp.StorageName > "" {
+						metricNameForStorage = mvp.StorageName
 					}
-				} else if (!metricDefExists && cancelFuncExists) || interval <= 0 {
-					// metric definition files were recently removed or interval set to zero
-					if cancelFunc, isOk := r.cancelFuncs[dbMetric]; isOk {
-						cancelFunc()
+
+					if err := r.SinksWriter.SyncMetric(monitoredSource.Name, metricNameForStorage, sinks.AddOp); err != nil {
+						srcL.Error(err)
 					}
-					srcL.WithField("metric", metric).Warning("shutting down gatherer...")
-					delete(r.cancelFuncs, dbMetric)
-				} else if !metricDefExists {
+
+					go r.reapMetricMeasurements(metricCtx, monitoredSource, metric)
+				} else if !(metricDefExists || cancelFuncExists) {
 					epoch, ok := lastSQLFetchError.Load(metric)
 					if !ok || ((time.Now().Unix() - epoch.(int64)) > 3600) { // complain only 1x per hour
 						srcL.WithField("metric", metric).Warning("metric definition not found")
