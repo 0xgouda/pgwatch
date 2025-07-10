@@ -12,6 +12,7 @@ import (
 
 	"github.com/cybertec-postgresql/pgwatch/v3/internal/metrics"
 	"github.com/cybertec-postgresql/pgwatch/v3/internal/sinks"
+	"github.com/cybertec-postgresql/pgwatch/v3/internal/sinks/pb"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -42,11 +43,11 @@ func (receiver *Receiver) UpdateMeasurements(msg *metrics.MeasurementEnvelope, l
 	return nil
 }
 
-func (receiver *Receiver) SyncMetric(syncReq *sinks.SyncReq, logMsg *string) error {
+func (receiver *Receiver) SyncMetric(syncReq *pb.SyncReq, logMsg *string) error {
 	if syncReq == nil {
 		return errors.New("msgs is nil")
 	}
-	if syncReq.Operation == sinks.InvalidOp {
+	if syncReq.Operation == pb.SyncOp_InvalidOp {
 		return errors.New("invalid message")
 	}
 	*logMsg = fmt.Sprintf("Received: %+v", *syncReq)
