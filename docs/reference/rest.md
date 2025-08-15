@@ -195,6 +195,10 @@ Add a new metric definition. POST to the collection endpoint expects a map with 
     You can create multiple metrics in a single request by providing
     multiple key-value pairs.
 
+!!! Note
+    If using a metrics YAML folder, 
+    any created metrics will be saved to `your_folder/new_metrics.yaml`.
+
 ```bash
 $ curl -X POST http://localhost:8080/metric \
   -H "Token: $TOKEN" \
