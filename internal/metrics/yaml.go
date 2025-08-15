@@ -25,9 +25,15 @@ func NewYAMLMetricReaderWriter(ctx context.Context, path string) (ReaderWriter, 
 	isDir := false
 	if fi.Mode().IsDir() {
 		isDir = true
-		// create `new_metrics.yaml` to hold any 
-		// metrics/presets created via the web api
-		_, err = os.Create(filepath.Join(path, "new_metrics.yaml"))
+
+		// create `metrics_folder/new_metrics.yaml` if doesn't exist 
+		// to hold any metrics/presets created via the web api
+		newMetricsFilePath := filepath.Join(path, "new_metrics.yaml")
+		_, err = os.ReadFile(newMetricsFilePath)
+		if os.IsNotExist(err) {
+			_, err = os.Create(newMetricsFilePath)
+		}
+
 		if err != nil {
 			return nil, err
 		}
