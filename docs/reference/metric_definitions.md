@@ -108,8 +108,14 @@ only floats can be stored!
 ### For *YAML* based setups
 
 1. Edit or create a copy of the `metrics.yaml` file shipped with the installation.
-1. Add a new entry to the `metrics` array and optionally add a new metric
+2. Add a new entry to the `metrics` array and optionally add a new metric
 in some existing or new *Preset*.
+
+!!! Notice
+    For easier management, you can split your metrics YAML configuration 
+    into multiple files within a single folder, and then pass that folder 
+    to `pgwatch` as described [here](./cli_env.md#metrics).
+
 
 Here is the structure of a metric definition in YAML format:
 
