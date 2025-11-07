@@ -61,6 +61,15 @@ func NewWriterFromPostgresConn(ctx context.Context, conn db.PgxPoolIface, opts *
 		// 	Scan(&pgw.retention, &pgw.maintenance); err != nil {
 		// 	return err
 		// }
+		var isValidInterval bool 
+		err = conn.QueryRow(ctx, "SELECT $1::interval >= '1h'::interval", opts.PartitionInterval).Scan(&isValidInterval)
+		if err != nil {
+			return err
+		}
+		if !isValidInterval {
+			return fmt.Errorf("partition interval must be at least 1 hour, got: %s", opts.PartitionInterval)
+		}
+
 		l.Info("initialising measurements database...")
 		exists, err := db.DoesSchemaExist(ctx, conn, "admin")
 		if err != nil || exists {
@@ -327,7 +336,6 @@ func (pgw *PostgresWriter) flush(msgs []metrics.MeasurementEnvelope) {
 		return
 	}
 	logger := log.GetLogger(pgw.ctx)
-	// metricsToStorePerMetric := make(map[string][]MeasurementMessagePostgres)
 	pgPartBounds := make(map[string]ExistingPartitionInfo)                  // metric=min/max
 	pgPartBoundsDbName := make(map[string]map[string]ExistingPartitionInfo) // metric=[dbname=min/max]
 	var err error
@@ -430,7 +438,7 @@ func (pgw *PostgresWriter) EnsureMetricTimescale(pgPartBounds map[string]Existin
 
 func (pgw *PostgresWriter) EnsureMetricDbnameTime(metricDbnamePartBounds map[string]map[string]ExistingPartitionInfo, force bool) (err error) {
 	var rows pgx.Rows
-	sqlEnsure := `select * from admin.ensure_partition_metric_dbname_time($1, $2, $3)`
+	sqlEnsure := `select * from admin.ensure_partition_metric_dbname_time($1, $2, $3, $4)`
 	for metric, dbnameTimestampMap := range metricDbnamePartBounds {
 		_, ok := partitionMapMetricDbname[metric]
 		if !ok {
@@ -443,7 +451,7 @@ func (pgw *PostgresWriter) EnsureMetricDbnameTime(metricDbnamePartBounds map[str
 			}
 			partInfo, ok := partitionMapMetricDbname[metric][dbname]
 			if !ok || (ok && (pb.StartTime.Before(partInfo.StartTime))) || force {
-				if rows, err = pgw.sinkDb.Query(pgw.ctx, sqlEnsure, metric, dbname, pb.StartTime); err != nil {
+				if rows, err = pgw.sinkDb.Query(pgw.ctx, sqlEnsure, metric, dbname, pb.StartTime, pgw.opts.PartitionInterval); err != nil {
 					return
 				}
 				if partInfo, err = pgx.CollectOneRow(rows, pgx.RowToStructByPos[ExistingPartitionInfo]); err != nil {
@@ -452,7 +460,7 @@ func (pgw *PostgresWriter) EnsureMetricDbnameTime(metricDbnamePartBounds map[str
 				partitionMapMetricDbname[metric][dbname] = partInfo
 			}
 			if pb.EndTime.After(partInfo.EndTime) || pb.EndTime.Equal(partInfo.EndTime) || force {
-				if rows, err = pgw.sinkDb.Query(pgw.ctx, sqlEnsure, metric, dbname, pb.StartTime); err != nil {
+				if rows, err = pgw.sinkDb.Query(pgw.ctx, sqlEnsure, metric, dbname, pb.StartTime, pgw.opts.PartitionInterval); err != nil {
 					return
 				}
 				if partInfo, err = pgx.CollectOneRow(rows, pgx.RowToStructByPos[ExistingPartitionInfo]); err != nil {
