@@ -30,12 +30,14 @@ var (
 // However, one is able to use any Postgres-compatible database as a storage backend,
 // e.g. PGEE, Citus, Greenplum, CockroachDB, etc.
 type PostgresWriter struct {
-	ctx          context.Context
-	sinkDb       db.PgxPoolIface
-	metricSchema DbStorageSchemaType
-	opts         *CmdOpts
-	input        chan metrics.MeasurementEnvelope
-	lastError    chan error
+	ctx                 context.Context
+	sinkDb              db.PgxPoolIface
+	metricSchema        DbStorageSchemaType
+	opts                *CmdOpts
+	retentionInterval   time.Duration
+	maintenanceInterval time.Duration
+	input               chan metrics.MeasurementEnvelope
+	lastError           chan error
 }
 
 func NewPostgresWriter(ctx context.Context, connstr string, opts *CmdOpts) (pgw *PostgresWriter, err error) {
@@ -57,17 +59,22 @@ func NewWriterFromPostgresConn(ctx context.Context, conn db.PgxPoolIface, opts *
 		sinkDb:    conn,
 	}
 	if err = db.Init(ctx, pgw.sinkDb, func(ctx context.Context, conn db.PgxIface) error {
-		// if err = conn.QueryRow(ctx, "SELECT $1::interval, $2::interval", opts.Retention, opts.Maintenance).
-		// 	Scan(&pgw.retention, &pgw.maintenance); err != nil {
-		// 	return err
-		// }
-		var isValidInterval bool 
-		err = conn.QueryRow(ctx, "SELECT $1::interval >= '1h'::interval", opts.PartitionInterval).Scan(&isValidInterval)
-		if err != nil {
+		var isValidPartitionInterval bool 
+		if err = conn.QueryRow(ctx, 
+			"SELECT extract(epoch from $1::interval), extract(epoch from $2::interval), $3::interval >= '1h'::interval", 
+			opts.Retention, opts.MaintenanceInterval, opts.PartitionInterval,
+		).Scan(&pgw.retentionInterval, &pgw.maintenanceInterval, &isValidPartitionInterval); err != nil {
 			return err
 		}
-		if !isValidInterval {
-			return fmt.Errorf("partition interval must be at least 1 hour, got: %s", opts.PartitionInterval)
+
+		if !isValidPartitionInterval {
+			return fmt.Errorf("--partition-interval must be at least 1 hour, got: %s", opts.PartitionInterval)
+		}
+		if pgw.maintenanceInterval < 0 {
+			return errors.New("--retention must be a positive PostgreSQL interval or 0 to disable it")
+		}
+		if pgw.retentionInterval < 0 {
+			return errors.New("--maintenance-interval must be a positive PostgreSQL interval or 0 to disable it")
 		}
 
 		l.Info("initialising measurements database...")
@@ -90,16 +97,16 @@ func NewWriterFromPostgresConn(ctx context.Context, conn db.PgxPoolIface, opts *
 	if err = pgw.EnsureBuiltinMetricDummies(); err != nil {
 		return
 	}
-	if pgw.opts.Maintenance > 0 {
+	if pgw.maintenanceInterval > 0 {
 		go func() {
 			for {
 				select {
 				case <-pgw.ctx.Done():
 					return
-				case <-time.After(pgw.opts.Maintenance):
+				case <-time.After(pgw.maintenanceInterval):
+					pgw.DeleteOldPartitions()
+					pgw.MaintainUniqueSources()
 				}
-				pgw.DeleteOldPartitions()
-				pgw.MaintainUniqueSources()
 			}
 		}()
 	}

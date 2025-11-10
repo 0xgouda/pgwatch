@@ -43,8 +43,9 @@ func TestNewWriterFromPostgresConn(t *testing.T) {
 	assert.NoError(t, err)
 
 	conn.ExpectPing()
-	conn.ExpectQuery("SELECT \\$1::interval").WithArgs("1 year").WillReturnRows(pgxmock.NewRows([]string{"col"}).AddRow(true))
-	conn.ExpectQuery("SELECT \\$1::interval").WithArgs("1 hour").WillReturnRows(pgxmock.NewRows([]string{"col"}).AddRow(true))
+	conn.ExpectQuery("SELECT extract").WithArgs("1 year", "1 day", "1 hour").WillReturnRows(
+		pgxmock.NewRows([]string{"col1", "col2", "col3"}).AddRow(365 * 24 * time.Hour, 24 * time.Hour, true),
+	)
 	conn.ExpectQuery("SELECT EXISTS").WithArgs("admin").WillReturnRows(pgxmock.NewRows([]string{"schema_type"}).AddRow(true))
 	conn.ExpectQuery("SELECT schema_type").WillReturnRows(pgxmock.NewRows([]string{"schema_type"}).AddRow(true))
 	for _, m := range metrics.GetDefaultBuiltInMetrics() {
@@ -53,8 +54,8 @@ func TestNewWriterFromPostgresConn(t *testing.T) {
 
 	opts := &CmdOpts{
 		BatchingDelay: time.Hour, 
-		Retention: time.Hour * 24 * 365,
-		Maintenance: time.Hour * 24,
+		Retention: "1 year",
+		MaintenanceInterval: "1 day",
 		PartitionInterval: "1 hour",
 	}
 	pgw, err := NewWriterFromPostgresConn(ctx, conn, opts)
@@ -526,13 +527,14 @@ func TestPartitionInterval(t *testing.T) {
 
 	opts := &CmdOpts{
 		PartitionInterval: "1 minute",
-		Retention: time.Hour * 24 * 14,
+		Retention: "14 days",
+		MaintenanceInterval: "12 hours",
 		BatchingDelay: time.Second,
 	}
 
 	t.Run("Interval Validation", func(_ *testing.T) {
 		_, err = NewPostgresWriter(ctx, connStr, opts)
-		a.EqualError(err, "partition interval must be at least 1 hour, got: 1 minute")
+		a.EqualError(err, "--partition-interval must be at least 1 hour, got: 1 minute")
 
 		opts.PartitionInterval = "not an interval"
 		_, err = NewPostgresWriter(ctx, connStr, opts)
