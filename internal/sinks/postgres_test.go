@@ -634,3 +634,55 @@ func TestPartitionInterval(t *testing.T) {
 	// partition bounds should have a difference of 3 weeks
 	a.Equal(part.StartTime.Add(3 * 7 * 24 * time.Hour), part.EndTime)
 }
+
+func TestMaintenance(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
+	const ImageName = "docker.io/postgres:17-alpine"
+	pgContainer, err := postgres.Run(ctx,
+		ImageName,
+		postgres.WithDatabase("mydatabase"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(5*time.Second)),
+	)
+	r.NoError(err)
+	defer func() { a.NoError(pgContainer.Terminate(ctx)) }()
+
+	connStr, _ := pgContainer.ConnectionString(ctx, "sslmode=disable")
+	conn, err := pgx.Connect(ctx, connStr)
+	r.NoError(err)
+
+	opts := &CmdOpts{
+		PartitionInterval: "1 hour",
+		Retention: "1 second",
+		MaintenanceInterval: "0 days",
+		BatchingDelay: time.Hour,
+	}
+
+	pgw, err := NewPostgresWriter(ctx, connStr, opts)
+	r.NoError(err)
+
+	_, err = conn.Exec(ctx, `CREATE TABLE test_metric (LIKE admin.metrics_template INCLUDING INDEXES) PARTITION BY LIST (dbname)`)
+	r.NoError(err)
+	_, err = conn.Exec(ctx, `COMMENT ON TABLE test_metric IS $$pgwatch-generated-metric-lvl$$`)
+	r.NoError(err)
+
+	// adds an entry to `admin.all_distinct_dbname_metrics`
+	pgw.SyncMetric("test", "test_metric", AddOp)
+
+	var numOfEntries int
+	err = conn.QueryRow(ctx, "SELECT count(*) FROM admin.all_distinct_dbname_metrics;").Scan(&numOfEntries)
+	a.NoError(err)	
+	a.Equal(numOfEntries, 1)
+
+	// manually call the maintenance function
+	pgw.MaintainUniqueSources()
+
+	// entry should have been deleted, because it has no corresponding entries in `test_metric` table.
+	err = conn.QueryRow(ctx, "SELECT count(*) FROM admin.all_distinct_dbname_metrics;").Scan(&numOfEntries)
+	a.NoError(err)	
+	a.Equal(numOfEntries, 0)
+}
