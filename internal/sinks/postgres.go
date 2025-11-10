@@ -493,30 +493,33 @@ func (pgw *PostgresWriter) DeleteOldPartitions() {
 	}
 }
 
-// MaintainUniqueSources is a background task that maintains a listing of unique sources for each metric.
+// MaintainUniqueSources is a background task that maintains a mapping of unique sources 
+// in each metric table in admin.all_distinct_dbname_metrics.
 // This is used to avoid listing the same source multiple times in Grafana dropdowns.
 func (pgw *PostgresWriter) MaintainUniqueSources() {
 	logger := log.GetLogger(pgw.ctx)
-	// due to metrics deletion the listing can go out of sync (a trigger not really wanted)
+
 	sqlGetAdvisoryLock := `SELECT pg_try_advisory_lock(1571543679778230000) AS have_lock` // 1571543679778230000 is just a random bigint
 	sqlTopLevelMetrics := `SELECT table_name FROM admin.get_top_level_metric_tables()`
 	sqlDistinct := `
 	WITH RECURSIVE t(dbname) AS (
 		SELECT MIN(dbname) AS dbname FROM %s
 		UNION
-		SELECT (SELECT MIN(dbname) FROM %s WHERE dbname > t.dbname) FROM t )
+		SELECT (SELECT MIN(dbname) FROM %s WHERE dbname > t.dbname) FROM t 
+	)
 	SELECT dbname FROM t WHERE dbname NOTNULL ORDER BY 1`
 	sqlDelete := `DELETE FROM admin.all_distinct_dbname_metrics WHERE NOT dbname = ANY($1) and metric = $2`
 	sqlDeleteAll := `DELETE FROM admin.all_distinct_dbname_metrics WHERE metric = $1`
 	sqlAdd := `
-		INSERT INTO admin.all_distinct_dbname_metrics SELECT u, $2 FROM (select unnest($1::text[]) as u) x
+		INSERT INTO admin.all_distinct_dbname_metrics 
+		SELECT u, $2 FROM (select unnest($1::text[]) as u) x
 		WHERE NOT EXISTS (select * from admin.all_distinct_dbname_metrics where dbname = u and metric = $2)
 		RETURNING *`
 
 	var lock bool
-	logger.Infof("Trying to get metricsDb listing maintainer advisory lock...") // to only have one "maintainer" in case of a "push" setup, as can get costly
+	logger.Infof("Trying to get admin.all_distinct_dbname_metrics maintainer advisory lock...") // to only have one "maintainer" in case of a "push" setup, as can get costly
 	if err := pgw.sinkDb.QueryRow(pgw.ctx, sqlGetAdvisoryLock).Scan(&lock); err != nil {
-		logger.Error("Getting metricsDb listing maintainer advisory lock failed:", err)
+		logger.Error("Getting admin.all_distinct_dbname_metrics maintainer advisory lock failed:", err)
 		return
 	}
 	if !lock {
@@ -540,7 +543,6 @@ func (pgw *PostgresWriter) MaintainUniqueSources() {
 		logger.Debugf("Refreshing all_distinct_dbname_metrics listing for metric: %s", metricName)
 		rows, _ := pgw.sinkDb.Query(pgw.ctx, fmt.Sprintf(sqlDistinct, tableName, tableName))
 		ret, err := pgx.CollectRows(rows, pgx.RowTo[string])
-		// ret, err := DBExecRead(mainContext, metricDb, fmt.Sprintf(sqlDistinct, tableName, tableName))
 		if err != nil {
 			logger.Errorf("Could not refresh Postgres all_distinct_dbname_metrics listing table for '%s': %s", metricName, err)
 			break
