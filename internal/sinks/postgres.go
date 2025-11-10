@@ -71,10 +71,10 @@ func NewWriterFromPostgresConn(ctx context.Context, conn db.PgxPoolIface, opts *
 			return fmt.Errorf("--partition-interval must be at least 1 hour, got: %s", opts.PartitionInterval)
 		}
 		if pgw.maintenanceInterval < 0 {
-			return errors.New("--retention must be a positive PostgreSQL interval or 0 to disable it")
+			return errors.New("--maintenance-interval must be a positive PostgreSQL interval or 0 to disable it")
 		}
 		if pgw.retentionInterval < 0 {
-			return errors.New("--maintenance-interval must be a positive PostgreSQL interval or 0 to disable it")
+			return errors.New("--retention must be a positive PostgreSQL interval or 0 to disable it")
 		}
 
 		l.Info("initialising measurements database...")
