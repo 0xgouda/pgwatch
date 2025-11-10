@@ -665,13 +665,9 @@ func TestMaintenance(t *testing.T) {
 	pgw, err := NewPostgresWriter(ctx, connStr, opts)
 	r.NoError(err)
 
-	_, err = conn.Exec(ctx, `CREATE TABLE test_metric (LIKE admin.metrics_template INCLUDING INDEXES) PARTITION BY LIST (dbname)`)
-	r.NoError(err)
-	_, err = conn.Exec(ctx, `COMMENT ON TABLE test_metric IS $$pgwatch-generated-metric-lvl$$`)
-	r.NoError(err)
-
 	// adds an entry to `admin.all_distinct_dbname_metrics`
-	pgw.SyncMetric("test", "test_metric", AddOp)
+	err = pgw.SyncMetric("test", "test_metric", AddOp)
+	r.NoError(err)
 
 	var numOfEntries int
 	err = conn.QueryRow(ctx, "SELECT count(*) FROM admin.all_distinct_dbname_metrics;").Scan(&numOfEntries)
