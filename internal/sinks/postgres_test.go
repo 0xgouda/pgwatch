@@ -667,7 +667,7 @@ func TestMaintenance(t *testing.T) {
 	pgw, err := NewPostgresWriter(ctx, connStr, opts)
 	r.NoError(err)
 
-	t.Run("MaintainUniqueSources", func(t *testing.T) {
+	t.Run("MaintainUniqueSources", func(_ *testing.T) {
 		// adds an entry to `admin.all_distinct_dbname_metrics`
 		err = pgw.SyncMetric("test", "test_metric_1", AddOp)
 		r.NoError(err)
@@ -705,7 +705,7 @@ func TestMaintenance(t *testing.T) {
 		a.Equal(1, numOfEntries)
 	})
 
-	t.Run("DeleteOldPartitions", func(t *testing.T) {
+	t.Run("DeleteOldPartitions", func(_ *testing.T) {
 		// Creates a new top level table for `test_metric_2`
 		err = pgw.SyncMetric("test", "test_metric_2", AddOp)
 		r.NoError(err)
@@ -748,7 +748,7 @@ func TestMaintenance(t *testing.T) {
 		a.Equal(2, partitionsNum)
 	})
 
-	t.Run("Epcoh to Duration Conversion", func(t *testing.T) {
+	t.Run("Epcoh to Duration Conversion", func(_ *testing.T) {
 		table := map[string]time.Duration{
 			"1 hour": time.Hour, 
 			"2 hours": 2 * time.Hour,
