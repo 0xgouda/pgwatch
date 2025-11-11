@@ -44,21 +44,14 @@ func TestNewWriterFromPostgresConn(t *testing.T) {
 	assert.NoError(t, err)
 
 	conn.ExpectPing()
-	conn.ExpectQuery("SELECT extract").WithArgs("1 day", "1 day", "1 hour").WillReturnRows(
-		pgxmock.NewRows([]string{"col1", "col2", "col3"}).AddRow(24 * time.Hour / 1_000_000_000, 24 * time.Hour / 1_000_000_000, true),
-	)
+	conn.ExpectQuery("SELECT \\$1::interval").WithArgs("1 year").WillReturnRows(pgxmock.NewRows([]string{"col"}).AddRow(true))
 	conn.ExpectQuery("SELECT EXISTS").WithArgs("admin").WillReturnRows(pgxmock.NewRows([]string{"schema_type"}).AddRow(true))
 	conn.ExpectQuery("SELECT schema_type").WillReturnRows(pgxmock.NewRows([]string{"schema_type"}).AddRow(true))
 	for _, m := range metrics.GetDefaultBuiltInMetrics() {
 		conn.ExpectExec("SELECT admin.ensure_dummy_metrics_table").WithArgs(m).WillReturnResult(pgxmock.NewResult("EXECUTE", 1))
 	}
 
-	opts := &CmdOpts{
-		BatchingDelay: time.Hour, 
-		Retention: "1 day",
-		MaintenanceInterval: "1 day",
-		PartitionInterval: "1 hour",
-	}
+	opts := &CmdOpts{BatchingDelay: time.Hour, Retention: "1 year"}
 	pgw, err := NewWriterFromPostgresConn(ctx, conn, opts)
 	assert.NoError(t, err)
 	assert.NotNil(t, pgw)
