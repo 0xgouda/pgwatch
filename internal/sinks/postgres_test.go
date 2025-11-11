@@ -44,8 +44,8 @@ func TestNewWriterFromPostgresConn(t *testing.T) {
 	assert.NoError(t, err)
 
 	conn.ExpectPing()
-	conn.ExpectQuery("SELECT extract").WithArgs("1 year", "1 day", "1 hour").WillReturnRows(
-		pgxmock.NewRows([]string{"col1", "col2", "col3"}).AddRow(365 * 24 * time.Hour, 24 * time.Hour, true),
+	conn.ExpectQuery("SELECT extract").WithArgs("1 day", "1 day", "1 hour").WillReturnRows(
+		pgxmock.NewRows([]string{"col1", "col2", "col3"}).AddRow(24 * time.Hour / 1_000_000_000, 24 * time.Hour / 1_000_000_000, true),
 	)
 	conn.ExpectQuery("SELECT EXISTS").WithArgs("admin").WillReturnRows(pgxmock.NewRows([]string{"schema_type"}).AddRow(true))
 	conn.ExpectQuery("SELECT schema_type").WillReturnRows(pgxmock.NewRows([]string{"schema_type"}).AddRow(true))
@@ -55,7 +55,7 @@ func TestNewWriterFromPostgresConn(t *testing.T) {
 
 	opts := &CmdOpts{
 		BatchingDelay: time.Hour, 
-		Retention: "1 year",
+		Retention: "1 day",
 		MaintenanceInterval: "1 day",
 		PartitionInterval: "1 hour",
 	}
@@ -746,5 +746,33 @@ func TestMaintenance(t *testing.T) {
 		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM pg_partition_tree('test_metric_2');").Scan(&partitionsNum)
 		a.NoError(err)
 		a.Equal(2, partitionsNum)
+	})
+
+	t.Run("Epcoh to Duration Conversion", func(t *testing.T) {
+		table := map[string]time.Duration{
+			"1 hour": time.Hour, 
+			"2 hours": 2 * time.Hour,
+			"4 days": 4 * 24 * time.Hour, 
+			"1 day": 24 * time.Hour,
+			"1 year": 365.25 * 24 * time.Hour,
+			"1 week": 7 * 24 * time.Hour,
+			"3 weeks": 3 * 7 * 24 * time.Hour,
+			"2 months": 2 * 30 * 24 * time.Hour,
+			"1 month": 30 * 24 * time.Hour,
+		}
+
+		for k, v := range table {
+			opts := &CmdOpts{
+				PartitionInterval: "1 hour",
+				Retention: k,
+				MaintenanceInterval: k,
+				BatchingDelay: time.Hour,
+			}
+
+			pgw, err := NewPostgresWriter(ctx, connStr, opts)
+			a.NoError(err)
+			a.Equal(pgw.retentionInterval, v)
+			a.Equal(pgw.maintenanceInterval, v)
+		}
 	})
 }

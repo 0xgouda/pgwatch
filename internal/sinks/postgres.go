@@ -67,6 +67,11 @@ func NewWriterFromPostgresConn(ctx context.Context, conn db.PgxPoolIface, opts *
 			return err
 		}
 
+		// multiply by (10 ^ 9) because we epoch returns seconds
+		// but time.Duration works in terms of nanoseconds
+		pgw.retentionInterval *= 1_000_000_000
+		pgw.maintenanceInterval *= 1_000_000_000
+
 		if !isValidPartitionInterval {
 			return fmt.Errorf("--partition-interval must be at least 1 hour, got: %s", opts.PartitionInterval)
 		}
