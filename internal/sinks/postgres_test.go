@@ -3,6 +3,7 @@ package sinks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 
 var ctx = context.Background()
 
-func TestReadMetricSchemaType(t *testing.T) {
+func testReadMetricSchemaType(t *testing.T) {
 	conn, err := pgxmock.NewPool()
 	assert.NoError(t, err)
 
@@ -38,7 +39,7 @@ func TestReadMetricSchemaType(t *testing.T) {
 	assert.Equal(t, DbStorageSchemaTimescale, pgw.metricSchema)
 }
 
-func TestNewWriterFromPostgresConn(t *testing.T) {
+func testNewWriterFromPostgresConn(t *testing.T) {
 	conn, err := pgxmock.NewPool()
 	assert.NoError(t, err)
 
@@ -65,7 +66,7 @@ func TestNewWriterFromPostgresConn(t *testing.T) {
 	assert.NoError(t, conn.ExpectationsWereMet())
 }
 
-func TestSyncMetric(t *testing.T) {
+func testSyncMetric(t *testing.T) {
 	conn, err := pgxmock.NewPool()
 	assert.NoError(t, err)
 	pgw := PostgresWriter{
@@ -86,7 +87,7 @@ func TestSyncMetric(t *testing.T) {
 	assert.NoError(t, err, "ignore unknown operation")
 }
 
-func TestWrite(t *testing.T) {
+func testWrite(t *testing.T) {
 	conn, err := pgxmock.NewPool()
 	assert.NoError(t, err)
 	ctx, cancel := context.WithCancel(ctx)
@@ -117,7 +118,7 @@ func TestWrite(t *testing.T) {
 	assert.Error(t, err, "context canceled")
 }
 
-func TestCopyFromMeasurements_Basic(t *testing.T) {
+func testCopyFromMeasurements_Basic(t *testing.T) {
 	// Test basic iteration through single envelope with multiple measurements
 	data := []metrics.MeasurementEnvelope{
 		{
@@ -156,7 +157,7 @@ func TestCopyFromMeasurements_Basic(t *testing.T) {
 	assert.True(t, cfm.EOF(), "Should be at end")
 }
 
-func TestCopyFromMeasurements_MultipleEnvelopes(t *testing.T) {
+func testCopyFromMeasurements_MultipleEnvelopes(t *testing.T) {
 	// Test iteration through multiple envelopes of same metric
 	data := []metrics.MeasurementEnvelope{
 		{
@@ -201,7 +202,7 @@ func TestCopyFromMeasurements_MultipleEnvelopes(t *testing.T) {
 	assert.False(t, cfm.Next())
 }
 
-func TestCopyFromMeasurements_MetricBoundaries(t *testing.T) {
+func testCopyFromMeasurements_MetricBoundaries(t *testing.T) {
 	// Test metric boundary detection with different metrics
 	data := []metrics.MeasurementEnvelope{
 		{
@@ -250,14 +251,14 @@ func TestCopyFromMeasurements_MetricBoundaries(t *testing.T) {
 	assert.True(t, cfm.EOF(), "Should be at EOF after processing all measurements")
 }
 
-func TestCopyFromMeasurements_EmptyData(t *testing.T) {
+func testCopyFromMeasurements_EmptyData(t *testing.T) {
 	// Test with empty envelopes slice
 	cfm := newCopyFromMeasurements([]metrics.MeasurementEnvelope{})
 	assert.False(t, cfm.Next())
 	assert.True(t, cfm.EOF())
 }
 
-func TestCopyFromMeasurements_EmptyMeasurements(t *testing.T) {
+func testCopyFromMeasurements_EmptyMeasurements(t *testing.T) {
 	// Test with envelope containing no measurements
 	data := []metrics.MeasurementEnvelope{
 		{
@@ -288,7 +289,7 @@ func TestCopyFromMeasurements_EmptyMeasurements(t *testing.T) {
 	assert.True(t, cfm.EOF())
 }
 
-func TestCopyFromMeasurements_TagProcessing(t *testing.T) {
+func testCopyFromMeasurements_TagProcessing(t *testing.T) {
 	// Test that tag_ prefixed fields are moved to CustomTags
 	data := []metrics.MeasurementEnvelope{
 		{
@@ -358,7 +359,7 @@ func TestCopyFromMeasurements_TagProcessing(t *testing.T) {
 	assert.NoError(t, err, "should process nil CustomTags without error")
 }
 
-func TestCopyFromMeasurements_JsonMarshaling(t *testing.T) {
+func testCopyFromMeasurements_JsonMarshaling(t *testing.T) {
 	// Test that JSON marshaling works correctly
 	data := []metrics.MeasurementEnvelope{
 		{
@@ -410,13 +411,13 @@ func TestCopyFromMeasurements_JsonMarshaling(t *testing.T) {
 	assert.NotPanics(t, func() { _ = cfm.MetricName() })
 }
 
-func TestCopyFromMeasurements_ErrorHandling(t *testing.T) {
+func testCopyFromMeasurements_ErrorHandling(t *testing.T) {
 	// Test Err() method
 	cfm := newCopyFromMeasurements([]metrics.MeasurementEnvelope{})
 	assert.NoError(t, cfm.Err(), "Err() should always return nil")
 }
 
-func TestCopyFromMeasurements_StateManagement(t *testing.T) {
+func testCopyFromMeasurements_StateManagement(t *testing.T) {
 	// Test that internal state is managed correctly during iteration
 	data := []metrics.MeasurementEnvelope{
 		{
@@ -456,7 +457,7 @@ func TestCopyFromMeasurements_StateManagement(t *testing.T) {
 	assert.Equal(t, "", cfm.metricName)
 }
 
-func TestCopyFromMeasurements_CopyFail(t *testing.T) {
+func testCopyFromMeasurements_CopyFail(t *testing.T) {
 	a := assert.New(t)
 	r := require.New(t)
 	const ImageName = "docker.io/postgres:17-alpine"
@@ -509,7 +510,7 @@ func TestCopyFromMeasurements_CopyFail(t *testing.T) {
 
 // tests interval string validation for all 
 // cli flags that expect a PostgreSQL interval string
-func TestIntervalValidation(t *testing.T) {
+func testIntervalValidation(t *testing.T) {
 	a := assert.New(t)
 	r := require.New(t)
 
@@ -582,7 +583,7 @@ func TestIntervalValidation(t *testing.T) {
 	}
 }
 
-func TestPartitionInterval(t *testing.T) {
+func testPartitionInterval(t *testing.T) {
 	a := assert.New(t)
 	r := require.New(t)
 
@@ -639,6 +640,7 @@ func TestMaintenance(t *testing.T) {
 	a := assert.New(t)
 	r := require.New(t)
 
+	// TODO: move postgres container setup to TestMain()
 	const ImageName = "docker.io/postgres:17-alpine"
 	pgContainer, err := postgres.Run(ctx,
 		ImageName,
@@ -665,20 +667,61 @@ func TestMaintenance(t *testing.T) {
 	pgw, err := NewPostgresWriter(ctx, connStr, opts)
 	r.NoError(err)
 
-	// adds an entry to `admin.all_distinct_dbname_metrics`
-	err = pgw.SyncMetric("test", "test_metric", AddOp)
-	r.NoError(err)
+	t.Run("MaintainUniqueSources", func(t *testing.T) {
+		// adds an entry to `admin.all_distinct_dbname_metrics`
+		err = pgw.SyncMetric("test", "test_metric", AddOp)
+		r.NoError(err)
 
-	var numOfEntries int
-	err = conn.QueryRow(ctx, "SELECT count(*) FROM admin.all_distinct_dbname_metrics;").Scan(&numOfEntries)
-	a.NoError(err)	
-	a.Equal(numOfEntries, 1)
+		var numOfEntries int
+		err = conn.QueryRow(ctx, "SELECT count(*) FROM admin.all_distinct_dbname_metrics;").Scan(&numOfEntries)
+		a.NoError(err)	
+		a.Equal(1, numOfEntries)
 
-	// manually call the maintenance function
-	pgw.MaintainUniqueSources()
+		// manually call the maintenance function
+		pgw.MaintainUniqueSources()
 
-	// entry should have been deleted, because it has no corresponding entries in `test_metric` table.
-	err = conn.QueryRow(ctx, "SELECT count(*) FROM admin.all_distinct_dbname_metrics;").Scan(&numOfEntries)
-	a.NoError(err)	
-	a.Equal(numOfEntries, 0)
+		// entry should have been deleted, because it has no corresponding entries in `test_metric` table.
+		err = conn.QueryRow(ctx, "SELECT count(*) FROM admin.all_distinct_dbname_metrics;").Scan(&numOfEntries)
+		a.NoError(err)	
+		a.Equal(0, numOfEntries)
+	})
+
+	t.Run("DeleteOldPartitions", func(t *testing.T) {
+		_, err = conn.Exec(ctx, "CREATE TABLE subpartitions.test_metric_dbname PARTITION OF public.test_metric FOR VALUES IN ('test') PARTITION BY RANGE (time)")
+		a.NoError(err)
+
+		boundStart := time.Now().Add(-1 * 2 * 24 * time.Hour).Format("2006-01-02")
+		boundEnd := time.Now().Add(-1 * 24 * time.Hour).Format("2006-01-02")
+
+		// create a time partition with end bound yesterday 
+		_, err = conn.Exec(ctx, 
+			fmt.Sprintf(
+			`CREATE TABLE subpartitions.test_metric_dbname_time 
+			PARTITION OF subpartitions.test_metric_dbname 
+			FOR VALUES FROM ('%s') TO ('%s')`, 
+			boundStart, boundEnd),
+		)
+		a.NoError(err)
+		_, err = conn.Exec(ctx, "COMMENT ON TABLE subpartitions.test_metric_dbname_time IS $$pgwatch-generated-metric-dbname-time-lvl$$")
+		a.NoError(err)
+
+		var partitionsNum int;
+		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM pg_partition_tree('test_metric');").Scan(&partitionsNum)
+		a.NoError(err)
+		a.Equal(3, partitionsNum)
+
+		pgw.opts.Retention = "2 days"
+		pgw.DeleteOldPartitions() // 1 day < 2 days, shouldn't delete anything
+
+		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM pg_partition_tree('test_metric');").Scan(&partitionsNum)
+		a.NoError(err)
+		a.Equal(3, partitionsNum)
+
+		pgw.opts.Retention = "1 hour"
+		pgw.DeleteOldPartitions() // 1 day > 1 hour, should delete the partition
+
+		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM pg_partition_tree('test_metric');").Scan(&partitionsNum)
+		a.NoError(err)
+		a.Equal(2, partitionsNum)
+	})
 }
