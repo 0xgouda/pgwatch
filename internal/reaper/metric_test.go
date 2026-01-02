@@ -4,8 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/cybertec-postgresql/pgwatch/v3/internal/cmdopts"
+	"github.com/cybertec-postgresql/pgwatch/v3/internal/log"
 	"github.com/cybertec-postgresql/pgwatch/v3/internal/metrics"
 	"github.com/cybertec-postgresql/pgwatch/v3/internal/sources"
+	"github.com/cybertec-postgresql/pgwatch/v3/internal/testutil"
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/stretchr/testify/assert"
 )
@@ -89,4 +92,78 @@ func TestConcurrentMetricDefs_RandomAccess(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestReaper_LoadMetrics(t *testing.T) {
+	ctx := log.WithLogger(context.Background(), log.NewNoopLogger())
+
+	testMetrics := &metrics.Metrics{
+		MetricDefs: metrics.MetricDefs{
+			"cpu_load":  metrics.Metric{Description: "CPU load metric"},
+			"mem_usage": metrics.Metric{Description: "Memory usage metric"},
+		},
+		PresetDefs: metrics.PresetDefs{
+			"basic": metrics.Preset{
+				Description: "Basic preset",
+				Metrics:     map[string]float64{"cpu_load": 10.0, "mem_usage": 30.0},
+			},
+			"standby": metrics.Preset{
+				Description: "Standby preset",
+				Metrics:     map[string]float64{"cpu_load": 60.0},
+			},
+		},
+	}
+
+	mockReader := &testutil.MockMetricsReaderWriter{
+		GetMetricsFunc: func() (*metrics.Metrics, error) {
+			return testMetrics, nil
+		},
+	}
+
+	r := NewReaper(ctx, &cmdopts.Options{MetricsReaderWriter: mockReader})
+
+	r.monitoredSources = sources.SourceConns{
+		sources.NewSourceConn(sources.Source{
+			Name:                 "source1",
+			PresetMetrics:        "basic",
+			PresetMetricsStandby: "standby",
+		}),
+		sources.NewSourceConn(sources.Source{
+			Name:                 "source2",
+			PresetMetrics:        "basic",
+			PresetMetricsStandby: "",
+		}),
+	}
+
+	// Reset metricDefs before test
+	metricDefs = NewConcurrentMetricDefs()
+
+	err := r.LoadMetrics()
+	assert.NoError(t, err)
+
+	// Verify metricDefs is updated
+	cpuMetric, ok := metricDefs.GetMetricDef("cpu_load")
+	assert.True(t, ok, "Expected cpu_load metric to exist")
+	assert.Equal(t, "CPU load metric", cpuMetric.Description)
+
+	memMetric, ok := metricDefs.GetMetricDef("mem_usage")
+	assert.True(t, ok, "Expected mem_usage metric to exist")
+	assert.Equal(t, "Memory usage metric", memMetric.Description)
+
+	basicPreset, ok := metricDefs.GetPresetDef("basic")
+	assert.True(t, ok, "Expected basic preset to exist")
+	assert.Equal(t, "Basic preset", basicPreset.Description)
+
+	// Verify Metrics and MetricsStandby are correctly populated
+	assert.Equal(t, map[string]float64{"cpu_load": 10.0, "mem_usage": 30.0}, r.monitoredSources[0].Metrics)
+	assert.Equal(t, map[string]float64{"cpu_load": 60.0}, r.monitoredSources[0].MetricsStandby)
+
+	assert.Equal(t, map[string]float64{"cpu_load": 10.0, "mem_usage": 30.0}, r.monitoredSources[1].Metrics)
+	assert.Nil(t, r.monitoredSources[1].MetricsStandby)
+
+	// Verify error propagation
+	mockReader.GetMetricsFunc = func() (*metrics.Metrics, error) {return nil, assert.AnError}
+	err = r.LoadMetrics()
+	assert.Error(t, err)
+	assert.Equal(t, assert.AnError, err)
 }
